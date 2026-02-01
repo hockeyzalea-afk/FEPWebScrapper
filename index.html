@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FEPScraper UI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+      pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+  </head>
+  <body class="p-4">
+    <div class="container">
+      <h1 class="mb-3">FEPScraper</h1>
+
+<div class="mb-3">
+        <div class="form-check form-check-inline ms-3">
+            <label class="form-check-label" for="temporadaSelect">Temporada</label>
+            <select class="form-select d-inline-block w-auto ms-2" id="temporadaSelect">
+                <option value="">Cargando temporadas...</option>
+            </select>
+        </div>
+
+        <div class="form-check form-check-inline ms-3">
+            <label class="form-check-label" for="competitionSelect">Competición</label>
+            <select class="form-select d-inline-block w-auto ms-2" id="competitionSelect">
+                <option value="3156">OK LIGA BRONCE NORTE</option>
+                <option value="3157">OK LIGA BRONCE SUR</option>
+                <option value="3155">OK LIGA PLATA FEMENINA</option>
+                <option value="3153">OK LIGA PLATA NORTE</option>
+                <option value="3154">OK LIGA PLATA SUR</option>
+                <option value="3151">OK LIGA IBERDROLA</option>
+                <option value="3150">OK LIGA</option>
+            </select>
+        </div>
+
+        <button id="startScrape" class="btn btn-primary ms-3">Iniciar scraping</button>
+
+        <div class="form-check form-check-inline ms-3">
+            <input class="form-check-input" type="checkbox" id="forceRun">
+            <label class="form-check-label" for="forceRun">Forzar</label>
+        </div>
+
+        <span id="status" class="ms-3"></span>
+        <button id="startIport" class="btn btn-primary ms-3">Inmportar</button>
+    </div>
+
+      <ul class="nav nav-tabs" id="resultTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="teams-tab" data-bs-toggle="tab" data-bs-target="#teams" type="button" role="tab">Teams</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="partidos-tab" data-bs-toggle="tab" data-bs-target="#partidos" type="button" role="tab">Partidos</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="jugadores-tab" data-bs-toggle="tab" data-bs-target="#jugadores" type="button" role="tab">Jugadores</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="estadisticas-tab" data-bs-toggle="tab" data-bs-target="#estadisticas" type="button" role="tab">Estadísticas</button>
+        </li>
+      </ul>
+      <div class="tab-content border border-top-0 p-3" id="resultTabsContent">
+        <div class="tab-pane fade show active" id="teams" role="tabpanel">
+          <div id="teamsContent"><em>Sin datos</em></div>
+        </div>
+        <div class="tab-pane fade" id="partidos" role="tabpanel">
+          <div id="partidosContent"><em>Sin datos</em></div>
+        </div>
+        <div class="tab-pane fade" id="jugadores" role="tabpanel">
+          <div id="jugadoresContent"><em>Sin datos</em></div>
+        </div>
+        <div class="tab-pane fade" id="estadisticas" role="tabpanel">
+          <div id="estadisticasContent"><em>Sin datos</em></div>
+        </div>
+      </div>
+
+    </div>
+
+    <script>
+    function renderPrettyJson(containerSelector, obj) {
+      var formatted = JSON.stringify(obj, null, 2);
+      $(containerSelector).html('<pre>' + $('<div/>').text(formatted).html() + '</pre>');
+    }
+
+    $(function(){
+
+      var scrapedData = {};
+      // Bootstrap modal instance for loading
+      var loadingModalEl = document.getElementById('loadingModal');
+      var loadingModal = loadingModalEl ? new bootstrap.Modal(loadingModalEl, { keyboard: false, backdrop: 'static' }) : null;
+      // ─────────────────────────────────────────────
+      // Carga automática de temporadas al iniciar
+      // ─────────────────────────────────────────────
+      function loadTemporadas() {
+          $.ajax({
+              url: 'temporadas.php',           // ← Ajusta la ruta si es diferente
+              method: 'GET',
+              dataType: 'json',
+              timeout: 10000,
+              success: function(response) {
+                  const $select = $('#temporadaSelect');
+                  $select.empty();
+
+                  if (response && Array.isArray(response.data)) {
+                      if (response.data.length === 0) {
+                          $select.append('<option value="">No hay temporadas disponibles</option>');
+                          return;
+                      }
+                      if (response.data.length === 1) {
+                          $select.append(
+                              $('<option>', {
+                                  value: response.data[0].id,
+                                  text: response.data[0].nombre
+                              })
+                          );
+                          
+
+                          $.getJSON('api/competiciones.php?temporada_id=' + response.data[0].id, function(response) {
+                              // Limpiar y rellenar el select de competiciones
+                              const $compSelect = $('#competitionSelect');
+                              $compSelect.empty();
+                              
+                              if (response.data && response.data.length > 0) {
+                                  response.data.forEach(comp => {
+                                      $compSelect.append(
+                                          $('<option>', {
+                                              value: comp.id,
+                                              text: comp.nombre
+                                          })
+                                      );
+                                  });
+                              } else {
+                                  $compSelect.append('<option value="">No hay competiciones en esta temporada</option>');
+                              }
+                          });
+                          return;
+                      }
+                      // Ordenamos por nombre descendente (últimas temporadas primero)
+                      const temporadas = response.data.sort((a,b) => b.nombre.localeCompare(a.nombre));
+
+                      temporadas.forEach(t => {
+                          $select.append(
+                              $('<option>', {
+                                  value: t.id,
+                                  text: t.nombre
+                              })
+                          );
+                      });
+
+                      // Opcional: seleccionar la más reciente por defecto
+                      $select.val(temporadas[0]?.id || '');
+                  } else {
+                      $select.append('<option value="">Error al cargar temporadas</option>');
+                  }
+              },
+              error: function(xhr, status, error) {
+                  $('#temporadaSelect')
+                      .empty()
+                      .append('<option value="">Error al cargar temporadas</option>');
+                  console.error('Error cargando temporadas:', status, error);
+              }
+          });
+      }
+
+      // Llamamos inmediatamente al cargar la página
+      loadTemporadas();
+      $('#startIport').prop('disabled', true);
+      // ─────────────────────────────────────────────
+    $('#temporadaSelect').on('change', function() {
+        const temporadaId = $(this).val();
+        if (!temporadaId) return;
+
+        $.getJSON('competiciones.php?temporada_id=' + temporadaId, function(response) {
+            // Limpiar y rellenar el select de competiciones
+            const $compSelect = $('#competitionSelect');
+            $compSelect.empty();
+            
+            if (response.data && response.data.length > 0) {
+                response.data.forEach(comp => {
+                    $compSelect.append(
+                        $('<option>', {
+                            value: comp.id,
+                            text: comp.nombre
+                        })
+                    );
+                });
+            } else {
+                $compSelect.append('<option value="">No hay competiciones en esta temporada</option>');
+            }
+        });
+    });
+  
+    $('#startIport').on('click', function() {
+    var force = $('#forceRun').is(':checked') ? 1 : 0;
+    var competitionId = $('#competitionSelect').val();
+    $('#status').text('Iniciando...');
+
+    var datos = JSON.stringify(Object.values(scrapedData)) || '[]';
+    // Show loading modal and disable button
+    console.log(scrapedData);
+    if (loadingModal) loadingModal.show();
+
+    $('#startIport').prop('disabled', true);
+    window.alert('Iniciando importación. Esto puede tardar varios minutos. ' );
+    $.ajax({
+      url: 'api/importer.php',
+      method: 'POST',
+      data: datos,
+      dataType: 'json',
+      timeout: 600000, // 10min
+      success: function(resp) {
+        if (resp.status === 'ok') {
+          $('#status').text('Completado');    
+          
+          
+          var msg = "Importación completada. Insertados: " + (resp.insertadas || 0) +
+                    ", Errores: " + (resp.errores ? resp.errores.length : 0);
+          window.alert(msg);
+        } else {
+          $('#status').text('Error: ' + (resp.message || 'respuesta desconocida'));
+        }
+      },
+      error: function(xhr, status, err) {
+        $('#status').text('Error: ' + (err || status));
+        try {
+          window.alert(err);
+          var json = JSON.parse(xhr.responseText);
+          renderPrettyJson('#teamsContent', json);
+          console.log(json);
+        } catch (e) {
+          renderPrettyJson('#teamsContent', xhr.responseText);
+          console.log(xhr.responseText);
+        }
+      },
+      complete: function() {
+        // Hide loading modal and enable button
+        if (loadingModal) loadingModal.hide();
+        $('#startIport').prop('disabled', false);
+      }
+    });
+  });
+      // ─────────────────────────────────────────────
+      // Botón de scraping (sin cambios importantes)
+      // ─────────────────────────────────────────────
+
+      $('#startScrape').on('click', function(){
+        var force = $('#forceRun').is(':checked') ? 1 : 0;
+        var competitionId = $('#competitionSelect').val();
+        $('#status').text('Iniciando...');
+        renderPrettyJson('#teamsContent', 'Cargando...');
+        renderPrettyJson('#partidosContent', 'Cargando...');
+        renderPrettyJson('#jugadoresContent', 'Cargando...');
+        renderPrettyJson('#estadisticasContent', 'Cargando...');
+
+        // Show loading modal and disable button
+        if (loadingModal) loadingModal.show();
+        $('#startScrape').prop('disabled', true);
+        window.alert('Iniciando scraping. Esto puede tardar varios minutos. Competición seleccionada: ' + competitionId );
+        $.ajax({
+          url: 'FEPScraper.php',
+          method: 'GET',
+          data: { force: force , competitionId: competitionId },
+          dataType: 'json',
+          timeout: 600000, // 10min
+          success: function(resp) {
+            if (resp.status === 'ok') {
+              $('#status').text('Completado');
+
+              var data = resp.data || {};
+              scrapedData = data;
+              var msg = "Scraping completado. Equipos: " + (data.teams ? Object.keys(data.teams).length : 0) +
+                        ", Partidos: " + (data.partidos ? Object.keys(data.partidos).length : 0) +
+                        ", Jugadores: " + (data.jugadores ? Object.keys(data.jugadores).length : 0) +
+                        ", Estadísticas: " + (data.estadisticas ? Object.keys(data.estadisticas).length : 0);
+              window.alert(msg);
+              renderPrettyJson('#teamsContent', data.teams || {});
+              renderPrettyJson('#partidosContent', data.partidos || {});
+              renderPrettyJson('#jugadoresContent', data.jugadores || {});
+              renderPrettyJson('#estadisticasContent', data.estadisticas || {});
+
+              $('#startIport').prop('disabled', false);
+
+            } else if (resp.status === 'running') {
+              $('#status').text('Ya está en ejecución');
+              renderPrettyJson('#teamsContent', resp.lock || {});
+            } else {
+              $('#status').text('Error: ' + (resp.message || 'respuesta desconocida'));
+            }
+          },
+          error: function(xhr, status, err) {
+            $('#status').text('Error: ' + (err || status));
+            try {
+              window.alert(err);
+              var json = JSON.parse(xhr.responseText);
+              renderPrettyJson('#teamsContent', json);
+              console.log(json);
+            } catch (e) {
+              renderPrettyJson('#teamsContent', xhr.responseText);
+              console.log(xhr.responseText);
+            }
+          },
+          complete: function() {
+            // Hide loading modal and enable button
+            if (loadingModal) loadingModal.hide();
+            $('#startScrape').prop('disabled', false);
+          }
+        });
+      });
+    });
+    </script>
+
+    <!-- Loading Modal -->
+    <div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-body text-center py-4">
+            <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;">
+              <span class="visually-hidden">Cargando...</span>
+            </div>
+            <div class="mt-3">Ejecutando scraping, por favor espere...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
